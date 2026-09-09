@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Convert API JSON Data arrays to Excel.">
+<title>JSON Data → Excel</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:#f5f7fb;color:#172033}
+.container{max-width:1180px;margin:auto;padding:42px 22px 70px}.hero{text-align:center;margin-bottom:28px}
+.pill{display:inline-block;padding:7px 12px;background:#eceaff;color:#5148e5;border-radius:999px;font-size:12px;font-weight:800}
+h1{font-size:clamp(34px,5vw,54px);letter-spacing:-2px;margin:14px 0 8px}.hero p{color:#667085;margin:0;font-size:16px}
+.card{background:#fff;border:1px solid #e4e7ec;border-radius:18px;padding:22px;box-shadow:0 12px 40px rgba(16,24,40,.07)}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+button,.file-label{border:0;border-radius:10px;padding:11px 16px;font-weight:750;font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+.primary{background:#635bff;color:#fff}.primary:hover{background:#5148e5}.secondary{background:#f2f4f7;color:#344054}.danger{background:#fff0ef;color:#b42318}
+button:disabled{opacity:.45;cursor:not-allowed}
+.editor{width:100%;min-height:350px;resize:vertical;border:1px solid #d0d5dd;border-radius:12px;padding:15px;font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;outline:none}
+.editor:focus{border-color:#635bff;box-shadow:0 0 0 3px #eceaff}
+.drop{margin-top:14px;border:2px dashed #d0d5dd;border-radius:12px;padding:22px;text-align:center;color:#667085;cursor:pointer}.drop.drag{border-color:#635bff;background:#faf9ff}
+.options{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}.field label{display:block;font-size:12px;font-weight:800;margin-bottom:6px}.field input{width:100%;padding:11px 12px;border:1px solid #d0d5dd;border-radius:9px;font:inherit}
+.exclude{margin-top:14px;padding:14px;border:1px solid #e4e7ec;border-radius:10px;background:#fafbfc}.exclude-title{font-size:12px;font-weight:800;margin-bottom:7px}.exclude input{width:100%;padding:10px;border:1px solid #d0d5dd;border-radius:8px}
+.hint{font-size:12px;color:#667085;margin:7px 0 0}.bottom{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px}.status{font-size:13px;color:#667085}.status.ok{color:#039855}.status.error{color:#d92d20}
+.preview{margin-top:22px}.preview-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}.preview-title h2{font-size:17px;margin:0}.table-wrap{overflow:auto;max-height:420px;border:1px solid #e4e7ec;border-radius:10px}
+table{border-collapse:collapse;min-width:100%;font-size:13px}th,td{padding:10px 12px;border-right:1px solid #e4e7ec;border-bottom:1px solid #e4e7ec;text-align:left;white-space:nowrap}th{background:#f8f9fb;position:sticky;top:0;font-weight:800}
+.hidden{display:none}.note{text-align:center;color:#98a2b3;font-size:12px;margin-top:18px}
+@media(max-width:700px){.options{grid-template-columns:1fr}.bottom{flex-direction:column;align-items:stretch}.bottom button{width:100%;justify-content:center}}
+</style>
+</head>
+<body>
+<div class="container">
+<header class="hero">
+<span class="pill">API JSON → Excel</span>
+<h1>JSON → Excel</h1>
+<p>Exports the objects inside <b>Data[]</b> directly into Excel.</p>
+</header>
+
+<main class="card">
+<div class="toolbar">
+<button class="secondary" id="sampleBtn">✨ Load Sample</button>
+<button class="secondary" id="pasteBtn">📋 Paste JSON</button>
+<button class="danger" id="clearBtn">Clear</button>
+<label class="file-label secondary" for="fileInput">📁 Upload JSON</label>
+<input id="fileInput" type="file" accept=".json,application/json" hidden>
+</div>
+
+<textarea id="editor" class="editor" spellcheck="false" placeholder='Paste API response JSON here...
+{
+  "Data": [
+    {
+      "brand": "GEELY",
+      "ownerVatNumber": "IT12345600000",
+      "materialCode": "E24TQ84EJ199000005"
+    }
+  ],
+  "Status": "Success"
+}'></textarea>
+
+<div id="drop" class="drop">Drop a .json file here</div>
+
+<div class="options">
+<div class="field"><label>Excel file name</label><input id="fileName" value="Data.xlsx"></div>
+<div class="field"><label>Sheet name</label><input id="sheetName" value="Data" maxlength="31"></div>
+</div>
+
+<div class="exclude">
+<div class="exclude-title">Columns to exclude</div>
+<input id="exclude" value="ownerVatNumber, materialCode">
+<p class="hint">Separate field names with commas. These fields will not appear in the Excel file.</p>
+</div>
+
+<div class="bottom">
+<div id="status" class="status">Paste or upload your API JSON.</div>
+<button id="downloadBtn" class="primary" disabled>⬇ Download Excel</button>
+</div>
+
+<section id="preview" class="preview hidden">
+<div class="preview-title"><h2>Excel Preview</h2><span id="rowCount" class="status"></span></div>
+<div class="table-wrap"><table id="table"></table></div>
+</section>
+
+<div class="note">Data is processed locally in your browser. Nothing is uploaded.</div>
+</main>
+</div>
+
+<script src="jszip.min.js"></script>
+<script>
+const editor=document.getElementById('editor');
+const status=document.getElementById('status');
+const downloadBtn=document.getElementById('downloadBtn');
+const table=document.getElementById('table');
+const preview=document.getElementById('preview');
+let rows=[];
+
+const sample={
+  "Data":[
+    {"brand":"GEELY","ownerVatNumber":"IT12345600000","materialCode":"E24TQ84EJ199000005","model":"EX5","country":"Italy"},
+    {"brand":"GEELY","ownerVatNumber":"IT98765400000","materialCode":"E24TQ84EJ199000006","model":"EX5","country":"Italy"}
+  ],
+  "Status":"Success"
+};
+
+function flatten(value,prefix='',out={}){
+  if(value===null||value===undefined){out[prefix||'value']='';return out}
+  if(Array.isArray(value)){out[prefix||'value']=JSON.stringify(value);return out}
+  if(typeof value==='object'){
+    for(const [k,v] of Object.entries(value)) flatten(v,prefix?prefix+'.'+k:k,out);
+    return out;
+  }
+  out[prefix||'value']=value;
+  return out;
+}
+
+function getData(json){
+  // Primary behavior: if Data exists and is an array, ONLY Data[] is exported.
+  if(json && Array.isArray(json.Data)){
+    return json.Data.map(item =>
+      typeof item==='object' && item!==null && !Array.isArray(item)
+        ? flatten(item)
+        : flatten({value:item})
+    );
+  }
+  // Fallback for a plain JSON array.
+  if(Array.isArray(json)){
+    return json.map(item =>
+      typeof item==='object' && item!==null && !Array.isArray(item)
+        ? flatten(item)
+        : flatten({value:item})
+    );
+  }
+  // Fallback for other object JSON.
+  return [flatten(json)];
+}
+
+function excludedFields(){
+  return document.getElementById('exclude').value
+    .split(',')
+    .map(x=>x.trim())
+    .filter(Boolean);
+}
+
+function applyExclusions(data){
+  const excluded=new Set(excludedFields());
+  return data.map(row=>{
+    const copy={};
+    for(const [key,value] of Object.entries(row)){
+      const root=key.split('.')[0];
+      if(!excluded.has(key) && !excluded.has(root)) copy[key]=value;
+    }
+    return copy;
+  });
+}
+
+function parse(){
+  try{
+    const json=JSON.parse(editor.value);
+    rows=applyExclusions(getData(json));
+    render();
+    downloadBtn.disabled=!rows.length;
+    const source=json && Array.isArray(json.Data) ? 'Data[]' : 'JSON';
+    status.textContent=`Valid JSON • ${source} • ${rows.length.toLocaleString()} row${rows.length===1?'':'s'} ready`;
+    status.className='status ok';
+  }catch(e){
+    rows=[];downloadBtn.disabled=true;preview.classList.add('hidden');
+    status.textContent='Invalid JSON: '+e.message;status.className='status error';
+  }
+}
+
+function render(){
+  table.innerHTML='';
+  if(!rows.length){preview.classList.add('hidden');return}
+  const keys=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+  const trh=document.createElement('tr');
+  keys.forEach(k=>{const th=document.createElement('th');th.textContent=k;trh.appendChild(th)});
+  const thead=document.createElement('thead');thead.appendChild(trh);table.appendChild(thead);
+  const tbody=document.createElement('tbody');
+  rows.slice(0,200).forEach(r=>{
+    const tr=document.createElement('tr');
+    keys.forEach(k=>{const td=document.createElement('td');td.textContent=r[k]??'';tr.appendChild(td)});
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  preview.classList.remove('hidden');
+  document.getElementById('rowCount').textContent=`${rows.length.toLocaleString()} rows`;
+}
+
+function esc(v){
+  return String(v??'')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+    .replace(/'/g,'&apos;');
+}
+
+function xmlEsc(v){
+  return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+}
+function excelCol(n){let s='';while(n>0){const r=(n-1)%26;s=String.fromCharCode(65+r)+s;n=Math.floor((n-1)/26)}return s}
+function safeExcelText(v){const s=String(v ?? '');return /^[=+\-@]/.test(s)?"'"+s:s}
+function makeWorksheet(){
+  const keys=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+  const maxRow=rows.length+1,maxCol=Math.max(keys.length,1);
+  let sheet='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  sheet+='<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:'+excelCol(maxCol)+maxRow+'"/><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="15"/><cols>';
+  for(let i=1;i<=keys.length;i++){const width=Math.min(60,Math.max(12,keys[i-1].length+3));sheet+='<col min="'+i+'" max="'+i+'" width="'+width+'" customWidth="1"/>'}
+  sheet+='</cols><sheetData><row r="1">';
+  keys.forEach((k,i)=>{const ref=excelCol(i+1)+'1';sheet+='<c r="'+ref+'" t="inlineStr" s="1"><is><t>'+xmlEsc(k)+'</t></is></c>'});
+  sheet+='</row>';
+  rows.forEach((r,rowIndex)=>{const rr=rowIndex+2;sheet+='<row r="'+rr+'">';keys.forEach((k,colIndex)=>{const ref=excelCol(colIndex+1)+rr,v=r[k];if(v===null||v===undefined||v===''){sheet+='<c r="'+ref+'" t="inlineStr"><is><t></t></is></c>'}else if(typeof v==='number'&&Number.isFinite(v)){sheet+='<c r="'+ref+'"><v>'+String(v)+'</v></c>'}else if(typeof v==='boolean'){sheet+='<c r="'+ref+'" t="b"><v>'+(v?'1':'0')+'</v></c>'}else{sheet+='<c r="'+ref+'" t="inlineStr"><is><t xml:space="preserve">'+xmlEsc(safeExcelText(v))+'</t></is></c>'}});sheet+='</row>'});
+  sheet+='</sheetData><autoFilter ref="A1:'+excelCol(maxCol)+maxRow+'"/></worksheet>';return sheet;
+}
+async function makeExcel(){
+  if(!rows.length)return;
+  const sheetName=(document.getElementById('sheetName').value||'Data').trim().slice(0,31)||'Data';
+  const contentTypes='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>';
+  const rootRels='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/package/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>';
+  const workbook='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="'+xmlEsc(sheetName)+'" sheetId="1" r:id="rId1"/></sheets></workbook>';
+  const workbookRels='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>';
+  const styles='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="0"/><fonts count="2"><font><sz val="11"/><name val="Aptos"/><family val="2"/></font><font><b/><sz val="11"/><name val="Aptos"/><family val="2"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+  const theme='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Office Theme"><a:themeElements><a:clrScheme name="Office"><a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1><a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="44546A"/></a:dk2><a:lt2><a:srgbClr val="E7E6E6"/></a:lt2><a:accent1><a:srgbClr val="4472C4"/></a:accent1><a:accent2><a:srgbClr val="ED7D31"/></a:accent2><a:accent3><a:srgbClr val="A5A5A5"/></a:accent3><a:accent4><a:srgbClr val="FFC000"/></a:accent4><a:accent5><a:srgbClr val="5B9BD5"/></a:accent5><a:accent6><a:srgbClr val="70AD47"/></a:accent6></a:clrScheme></a:themeElements></a:theme>';
+  const now=new Date().toISOString();
+  const core='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:creator>JSON to Excel Converter</dc:creator><cp:lastModifiedBy>JSON to Excel Converter</cp:lastModifiedBy><dcterms:created xsi:type="dcterms:W3CDTF">'+now+'</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">'+now+'</dcterms:modified></cp:coreProperties>';
+  const app='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>JSON to Excel Converter</Application><DocSecurity>0</DocSecurity><ScaleCrop>false</ScaleCrop></Properties>';
+  const zip=new JSZip();zip.file('[Content_Types].xml',contentTypes);zip.folder('_rels').file('.rels',rootRels);zip.folder('docProps').file('core.xml',core);zip.folder('docProps').file('app.xml',app);zip.folder('xl').file('workbook.xml',workbook);zip.folder('xl').folder('_rels').file('workbook.xml.rels',workbookRels);zip.folder('xl').folder('worksheets').file('sheet1.xml',makeWorksheet());zip.folder('xl').file('styles.xml',styles);
+  const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:6}});
+  let filename=(document.getElementById('fileName').value||'Data.xlsx').trim().replace(/\.(xls|xlsx)$/i,'')+'.xlsx';
+  const a=document.createElement('a'),url=URL.createObjectURL(blob);a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+  status.textContent='Real Excel (.xlsx) file downloaded successfully.';status.className='status ok';
+}
+
+document.getElementById('downloadBtn').addEventListener('click',makeExcel);
+editor.addEventListener('input',parse);
+document.getElementById('exclude').addEventListener('input',()=>{if(editor.value.trim())parse()});
+
+document.getElementById('sampleBtn').addEventListener('click',()=>{
+  editor.value=JSON.stringify(sample,null,2);parse();
+});
+document.getElementById('clearBtn').addEventListener('click',()=>{
+  editor.value='';rows=[];preview.classList.add('hidden');downloadBtn.disabled=true;
+  status.textContent='Paste or upload your API JSON.';status.className='status';
+});
+document.getElementById('pasteBtn').addEventListener('click',async()=>{
+  try{editor.value=await navigator.clipboard.readText();parse()}
+  catch{status.textContent='Clipboard access blocked. Paste JSON manually.';status.className='status error'}
+});
+
+const file=document.getElementById('fileInput'),drop=document.getElementById('drop');
+file.addEventListener('change',()=>{
+  const f=file.files[0];if(!f)return;
+  const r=new FileReader();r.onload=()=>{editor.value=r.result;parse()};r.readAsText(f);
+});
+drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('drag')});
+drop.addEventListener('dragleave',()=>drop.classList.remove('drag'));
+drop.addEventListener('drop',e=>{
+  e.preventDefault();drop.classList.remove('drag');
+  const f=e.dataTransfer.files[0];if(!f)return;
+  const r=new FileReader();r.onload=()=>{editor.value=r.result;parse()};r.readAsText(f);
+});
+</script>
+</body>
+</html>
